@@ -1,0 +1,8 @@
+numpy
+pandas
+gymnasium
+matplotlib
+pogema
+seaborn
+tqdm
+jupyter
