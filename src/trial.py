@@ -2,8 +2,8 @@
 # =============            Ahora mismo la selección de algoritmo es por optuna, no hardcodeada (igual preferimos hardcodear para dividirnoslo)
 # =============            Solo hay una sample de entrenamiento por trial, no varias, esto es igual que en la practica 2, pero al parecer es buena práctica ir guardando samples de entrenamiento
 # =============            Todo el output se guarda en un solo CSV al final, no en varios ficheros, también hay opción de guardar en SQLite pero igual es matada 
-
-
+# =============            No se ve bien el progreso, se podría añadir la barra del main original
+# =============            Parece que algunas de las métricas no se guardan bien, todos los parámetros de user_attrs por ejemplo
 
 
 
