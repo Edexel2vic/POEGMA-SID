@@ -1,7 +1,7 @@
 import os
 import time
 from tqdm import tqdm
-from algorithms_test import JALGT
+from algorithms_test import JALGT, IQLAgent
 from solution_concepts import MinimaxSolutionConcept, ParetoSolutionConcept, NashSolutionConcept, WelfareSolutionConcept
 from game_model import GameModel
 import numpy as np
@@ -115,8 +115,15 @@ if __name__ == '__main__':
     # Modelo de juego y algoritmos (uno para cada agente)
     game = GameModel(num_agents=exp_config["num_agents"], num_states=exp_config["num_states"],
                      num_actions=5)  # STAY, UP, DOWN, LEFT, RIGHT
-    algorithms = [JALGT(i, game, exp_config["solution_concept"](), epsilon=exp_config["epsilon_max"],
-                        alpha=exp_config["learning_rate"], seed=i)
+    #algorithms = [JALGT(i, game, exp_config["solution_concept"](), epsilon=exp_config["epsilon_max"],
+    #                    alpha=exp_config["learning_rate"], seed=i)
+    #              for i in range(game.num_agents)]
+
+    
+
+    algorithms = [IQLAgent(agent_id=i, num_local_states=exp_config["num_states"], num_individual_actions=5,
+                            alpha=exp_config["learning_rate"], epsilon_start=exp_config["epsilon_max"],
+                            epsilon_end=exp_config["epsilon_min"], seed=i)
                   for i in range(game.num_agents)]
 
     # Caída lineal de epsilon: precalculamos la diferencia en cada paso
@@ -144,9 +151,11 @@ if __name__ == '__main__':
                 # Elegimos acciones
                 actions = tuple([algorithms[i].select_action(states[i]) for i in range(game.num_agents)])
                 # Ejecutamos acciones en el entorno
+                print(actions)
                 observations, rewards, terminated, truncated, infos = env.step(actions)
                 # Aprendemos: actualizamos valores Q
-                [algorithms[i].learn(actions, rewards, states[i], obs_to_state(observations[i]))
+                new_states = [obs_to_state(observations[i]) for i in range(game.num_agents)]
+                [algorithms[i].learn(actions, rewards, states, new_states, agent_dones_list=terminated or truncated)
                  for i in range(game.num_agents)]
                 # Actualizamos métricas
                 train_rewards = [train_rewards[i] + rewards[i] for i in range(game.num_agents)]
