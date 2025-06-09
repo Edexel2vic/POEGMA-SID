@@ -115,15 +115,12 @@ if __name__ == '__main__':
     # Modelo de juego y algoritmos (uno para cada agente)
     game = GameModel(num_agents=exp_config["num_agents"], num_states=exp_config["num_states"],
                      num_actions=5)  # STAY, UP, DOWN, LEFT, RIGHT
-    #algorithms = [JALGT(i, game, exp_config["solution_concept"](), epsilon=exp_config["epsilon_max"],
-    #                    alpha=exp_config["learning_rate"], seed=i)
-    #              for i in range(game.num_agents)]
-
+    '''algorithms = [JALGT(i, game, exp_config["solution_concept"](), epsilon=exp_config["epsilon_max"],
+                        alpha=exp_config["learning_rate"], seed=i)
+                  for i in range(game.num_agents)]'''
     
-
-    algorithms = [IQLAgent(agent_id=i, num_local_states=exp_config["num_states"], num_individual_actions=5,
-                            alpha=exp_config["learning_rate"], epsilon_start=exp_config["epsilon_max"],
-                            epsilon_end=exp_config["epsilon_min"], seed=i)
+    algorithms = [IQLAgent(agent_id=i, num_local_states=exp_config["num_states"], num_individual_actions=5, epsilon_start=exp_config["epsilon_max"], epsilon_end=exp_config["epsilon_min"],
+                        gamma=0.99, alpha=exp_config["learning_rate"], seed=i)
                   for i in range(game.num_agents)]
 
     # Caída lineal de epsilon: precalculamos la diferencia en cada paso
@@ -151,12 +148,18 @@ if __name__ == '__main__':
                 # Elegimos acciones
                 actions = tuple([algorithms[i].select_action(states[i]) for i in range(game.num_agents)])
                 # Ejecutamos acciones en el entorno
-                print(actions)
                 observations, rewards, terminated, truncated, infos = env.step(actions)
                 # Aprendemos: actualizamos valores Q
-                new_states = [obs_to_state(observations[i]) for i in range(game.num_agents)]
-                [algorithms[i].learn(actions, rewards, states, new_states, agent_dones_list=terminated or truncated)
-                 for i in range(game.num_agents)]
+                experience_batch = {
+                        'joint_action': actions,
+                        'rewards': rewards,
+                        'current_global_state': states[0],
+                        'next_global_state': obs_to_state(observations[0]),
+                        'current_local_states': states,
+                        'next_local_states': [obs_to_state(obs) for obs in observations],
+                        'dones': terminated
+                    }
+                [algorithms[i].learn(experience_batch) for i in range(game.num_agents)]
                 # Actualizamos métricas
                 train_rewards = [train_rewards[i] + rewards[i] for i in range(game.num_agents)]
                 all_td_errors.append(algorithms[0].metrics["td_error"][-1])
