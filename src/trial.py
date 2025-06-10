@@ -7,7 +7,7 @@ import optuna
 import csv # For final CSV export
 
 # Assuming algorithms.py contains the corrected IQL and JALGT (as per our previous versions)
-from algorithms_test import JALGT, IQLAgent, MARLAlgorithm, ExperienceBatch
+from algorithms import JALGT, IQLAgent, MARLAlgorithm, ExperienceBatch
 from solution_concepts import MinimaxSolutionConcept, ParetoSolutionConcept, NashSolutionConcept, WelfareSolutionConcept
 from game_model import GameModel
 from gymnasium import Wrapper

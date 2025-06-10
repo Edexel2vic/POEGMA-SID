@@ -1,7 +1,9 @@
+# main.py
+
 import os
 import time
 from tqdm import tqdm
-from algorithms_test import JALGT, IQLAgent
+from algorithms import JALGT, IQLAgent
 from solution_concepts import MinimaxSolutionConcept, ParetoSolutionConcept, NashSolutionConcept, WelfareSolutionConcept
 from game_model import GameModel
 import numpy as np
@@ -15,38 +17,16 @@ def obs_to_state(obs):
     matrix_obstacles = obs[0]
     matrix_agents = obs[1]
     matrix_target = obs[2]
-
-    # Representación del objetivo:
-    #  Ocupa 2 bits
-    #  0 si el objetivo está arriba, diagonal arriba-izquierda o diagonal arriba-derecha
-    #  1 si el objetivo está abajo, diagonal abajo-izquierda o diagonal abajo-derecha
-    #  2 si el objetivo está a la izquierda (no en diagonal)
-    #  3 si el objetivo está a la derecha (no en diagonal)
     target = np.max(matrix_target[2]) * 1 + \
              matrix_target[1][0] * 2 + matrix_target[1][2] * 3
-
-    # Representación de los obstáculos:
-    #  Shift de 2^6, ocupando 4 bits
-    #  2^9 si hay un obstáculo arriba (no diagonal)
-    #  2^8 si hay un obstáculo a la izquierda (no diagonal)
-    #  2^7 si hay un obstáculo a la derecha (no diagonal)
-    #  2^6 si hay un obstáculo abajo (no diagonal)
     obstacles = matrix_obstacles[0][1] * 2 ** 9 + \
                 matrix_obstacles[1][0] * 2 ** 8 + \
                 matrix_obstacles[1][2] * 2 ** 7 + \
                 matrix_obstacles[2][1] * 2 ** 6
-
-    # Representación de los otros agentes:
-    #  Shift de 2^2, ocupando 4 bits
-    #  2^5 si hay un agente arriba (no diagonal)
-    #  2^4 si hay un agente a la izquierda (no diagonal)
-    #  2^3 si hay un agente a la derecha (no diagonal)
-    #  2^2 si hay un agente abajo (no diagonal)
     agents = matrix_agents[0][1] * 2 ** 5 + \
              matrix_agents[1][0] * 2 ** 4 + \
              matrix_agents[1][2] * 2 ** 3 + \
              matrix_agents[2][1] * 2 ** 2
-
     return int(obstacles + agents + target)
 
 
@@ -55,13 +35,11 @@ class RewardWrapper(Wrapper):
         super().__init__(env)
 
     def step(self, joint_action):
-        # En caso de que queráis utilizar las observaciones anteriores, utilizad este objeto:
         previous_observations = self.env.unwrapped._obs()
-
         observations, rewards, terminated, truncated, infos = self.env.step(joint_action)
         for i in range(len(joint_action)):
             if not terminated[i] and not truncated[i]:
-                if rewards[i] == 0:  # Penalización por tardar más en llegar
+                if rewards[i] == 0:
                     rewards[i] = rewards[i] - 0.01
         return observations, rewards, terminated, truncated, infos
 
@@ -75,125 +53,134 @@ def create_env(config, seed=42):
                              obs_radius=1,
                              on_target="finish",
                              render_mode=None)
-    animation_config = AnimationConfig(directory='renders/',  # Dónde se guardarán las imágenes
-                                       static=False,
-                                       show_agents=True,
-                                       egocentric_idx=None,  # Punto de vista
-                                       save_every_idx_episode=config["save_every"],  # Guardar cada save_every episodios
-                                       show_border=True,
-                                       show_lines=True)
-    env = pogema_v0(grid_config)
-    env = AnimationMonitor(env, animation_config=animation_config)
-    return RewardWrapper(env)  # Añadimos nuestra función de recompensa
+    # Disable animations during hyperparameter search for speed
+    if config.get("save_every") is not None:
+        animation_config = AnimationConfig(directory='renders/',
+                                           static=False,
+                                           show_agents=True,
+                                           egocentric_idx=None,
+                                           save_every_idx_episode=config["save_every"],
+                                           show_border=True,
+                                           show_lines=True)
+        env = pogema_v0(grid_config)
+        env = AnimationMonitor(env, animation_config=animation_config)
+    else:
+        env = pogema_v0(grid_config)
+        
+    return RewardWrapper(env)
 
 
-if __name__ == '__main__':
-    init_time = time.time()
-    exp_config = {
-        "num_agents": 2,  # Número de agentes
-        "size": 4,  # Tamaño del mapa (valor de anchura y valor de altura)
-        "maps": 10,  # Número de mapas a entrenar y evaluar (se repiten si episodios > mapas)
-        "num_states": 16 * 16 * 4,  # Obstacle representation x Agent representation x Target representation
-        "epochs": 20,  # Cada epoch es un entrenamiento de un número de episodios y una evaluación
-        "episodes_per_epoch": 20,  # Número mínimo de episodios por epoch de entrenamiento
-        "episode_length": 16,  # Número máximo de pasos por episodio, se trunca si se excede
-        "obstacle_density": 0.1,  # Probabilidad de tener un obstáculo en el mapa
-        "save_every": None,  # Frecuencia con que se guarda el SVG con la animación de la ejecución
-        "learning_rate": 0.01,  # alpha
-        "epsilon_max": 1,  # epsilon inicial por epoch
-        "epsilon_min": 0.1,  # cota mínima de epsilon
-        "renders": "renders/",  # directorio donde generar las animaciones
-        "solution_concept": ParetoSolutionConcept
-    }
-
-    # Crear directorio para almacenar los renders
-    try:
-        os.mkdir(exp_config["renders"])
-    except:
-        pass
-
-    # Modelo de juego y algoritmos (uno para cada agente)
-    game = GameModel(num_agents=exp_config["num_agents"], num_states=exp_config["num_states"],
-                     num_actions=5)  # STAY, UP, DOWN, LEFT, RIGHT
-    '''algorithms = [JALGT(i, game, exp_config["solution_concept"](), epsilon=exp_config["epsilon_max"],
-                        alpha=exp_config["learning_rate"], seed=i)
-                  for i in range(game.num_agents)]'''
+# We wrap the main logic in a function that takes the config and returns the score
+def run_experiment(config, pbar=None):
+    """
+    Runs a single experiment with a given configuration.
+    Returns the final collective evaluation reward.
+    """
+    game = GameModel(num_agents=config["num_agents"], num_states=config["num_states"],
+                     num_actions=5)
     
-    algorithms = [IQLAgent(agent_id=i, num_local_states=exp_config["num_states"], num_individual_actions=5, epsilon_start=exp_config["epsilon_max"], epsilon_end=exp_config["epsilon_min"],
-                        gamma=0.99, alpha=exp_config["learning_rate"], seed=i)
+    # IMPORTANT: Ensure the algorithm uses the hyperparameters from the config
+    algorithms = [IQLAgent(agent_id=i, 
+                           num_local_states=config["num_states"], 
+                           num_individual_actions=5, 
+                           epsilon_start=config["epsilon_max"], 
+                           epsilon_end=config["epsilon_min"],
+                           gamma=config["gamma"], # Use gamma from config
+                           alpha=config["learning_rate"], 
+                           seed=i)
                   for i in range(game.num_agents)]
 
-    # Caída lineal de epsilon: precalculamos la diferencia en cada paso
-    epsilon_diff = (exp_config["epsilon_max"] - exp_config["epsilon_min"]) / exp_config["episodes_per_epoch"]
+    epsilon_diff = (config["epsilon_max"] - config["epsilon_min"]) / config["episodes_per_epoch"]
+    
+    # We remove metric lists from the main function as Optuna only needs the final score
+    # reward_per_epoch = []
+    # td_error_per_epoch = []
 
-    # Variables para almacenar métricas
-    reward_per_epoch = []
-    td_error_per_epoch = []
+    num_epochs = config["epochs"]
+    if pbar:
+        iterator = range(num_epochs)
+    else:
+        # Using tqdm if no external progress bar is provided
+        iterator = tqdm(range(num_epochs), desc="Running Experiment")
 
-    pbar = tqdm(range(exp_config["epochs"]))  # Barra de progreso
-    for epoch in pbar:
-        all_eval_rewards = []
-        all_td_errors = []
-
-        # Entrenamiento
-        ###############
-        for ep in range(exp_config["episodes_per_epoch"]):
-            pbar.set_postfix({'modo': 'entrenamiento', 'episodio': ep})
-            env = create_env(config=exp_config, seed=ep % exp_config["maps"])
+    for epoch in iterator:
+        # Training
+        for ep in range(config["episodes_per_epoch"]):
+            if pbar: pbar.set_postfix({'modo': 'entrenamiento', 'episodio': ep})
+            
+            env = create_env(config=config, seed=ep % config["maps"])
             observations, infos = env.reset()
             terminated = truncated = [False, ...]
-            train_rewards = [0] * game.num_agents
             states = [obs_to_state(observations[i]) for i in range(game.num_agents)]
-            while not all(terminated) and not all(truncated):  # Hasta que acabe el episodio
-                # Elegimos acciones
+            
+            while not all(terminated) and not all(truncated):
                 actions = tuple([algorithms[i].select_action(states[i]) for i in range(game.num_agents)])
-                # Ejecutamos acciones en el entorno
                 observations, rewards, terminated, truncated, infos = env.step(actions)
-                # Aprendemos: actualizamos valores Q
                 experience_batch = {
-                        'joint_action': actions,
-                        'rewards': rewards,
-                        'current_global_state': states[0],
-                        'next_global_state': obs_to_state(observations[0]),
-                        'current_local_states': states,
-                        'next_local_states': [obs_to_state(obs) for obs in observations],
+                        'joint_action': actions, 'rewards': rewards,
+                        'current_global_state': states[0], 'next_global_state': obs_to_state(observations[0]),
+                        'current_local_states': states, 'next_local_states': [obs_to_state(obs) for obs in observations],
                         'dones': terminated
                     }
                 [algorithms[i].learn(experience_batch) for i in range(game.num_agents)]
-                # Actualizamos métricas
-                train_rewards = [train_rewards[i] + rewards[i] for i in range(game.num_agents)]
-                all_td_errors.append(algorithms[0].metrics["td_error"][-1])
-                # Preparar siguiente iteración: convertir observaciones parciales en estados
                 states = [obs_to_state(observations[i]) for i in range(game.num_agents)]
-            # Actualizamos epsilon
-            [algorithms[i].set_epsilon(exp_config["epsilon_max"] - epsilon_diff * ep) for i in range(game.num_agents)]
-        td_error_per_epoch.append(sum(all_td_errors))
 
-        # Evaluación
-        ############
-        evaluation_episodes = exp_config["maps"]
-        all_eval_rewards = []
-        for ep in range(evaluation_episodes):
-            pbar.set_postfix({'modo': 'evaluación...', 'episodio': ep})
-            env = create_env(config=exp_config, seed=ep)  # Reaprovechamos mapas del entrenamiento
-            observations, infos = env.reset()
-            terminated = truncated = [False, ...]
-            total_rewards = [0] * exp_config["num_agents"]
+            [algorithms[i].set_epsilon(config["epsilon_max"] - epsilon_diff * ep) for i in range(game.num_agents)]
+
+    # Evaluation (after all training epochs are done)
+    evaluation_episodes = config["maps"]
+    all_eval_rewards = []
+    for ep in range(evaluation_episodes):
+        if pbar: pbar.set_postfix({'modo': 'evaluación...', 'episodio': ep})
+        
+        env = create_env(config=config, seed=ep)
+        observations, infos = env.reset()
+        terminated = truncated = [False, ...]
+        total_rewards = [0] * config["num_agents"]
+        states = [obs_to_state(observations[i]) for i in range(game.num_agents)]
+        
+        while not all(terminated) and not all(truncated):
             states = [obs_to_state(observations[i]) for i in range(game.num_agents)]
-            while not all(terminated) and not all(truncated):  # Hasta que acabe el episodio
-                states = [obs_to_state(observations[i]) for i in range(game.num_agents)]
-                actions = tuple([algorithms[i].select_action(states[i], train=False)
-                                 for i in range(game.num_agents)])
-                observations, rewards, terminated, truncated, infos = env.step(actions)
-                total_rewards = [total_rewards[i] + rewards[i] for i in range(exp_config["num_agents"])]
-            # Guardamos animaciones
-            for agent_i in range(exp_config["num_agents"]):
-                solution_concept_name = exp_config["solution_concept"].__name__
-                env.save_animation(f"{exp_config['renders']}/{solution_concept_name}-map{ep}-agent{agent_i}-epoch{epoch}.svg",
-                                   AnimationConfig(egocentric_idx=agent_i, show_border=True, show_lines=True))
-            all_eval_rewards.append(sum(total_rewards))
-        pbar.set_description(f"Recompensa colectiva del último epoch = {'{:>6.6}'.format(str(sum(all_eval_rewards)))}")
-        reward_per_epoch.append(sum(all_eval_rewards))
-    draw_history(reward_per_epoch, "Recompensa colectiva")
-    draw_history(td_error_per_epoch, "TD Error")
+            actions = tuple([algorithms[i].select_action(states[i], train=False)
+                             for i in range(game.num_agents)])
+            observations, rewards, terminated, truncated, infos = env.step(actions)
+            total_rewards = [total_rewards[i] + rewards[i] for i in range(config["num_agents"])]
+        
+        all_eval_rewards.append(sum(total_rewards))
+
+    final_score = sum(all_eval_rewards)
+    if pbar:
+        pbar.set_description(f"Final Score for Trial: {final_score:.4f}")
+    
+    return final_score
+
+
+if __name__ == '__main__':
+    # This block can now be used for a single, standard run
+    init_time = time.time()
+    exp_config = {
+        "num_agents": 2,
+        "size": 4,
+        "maps": 10,
+        "num_states": 16 * 16 * 4,
+        "epochs": 20,
+        "episodes_per_epoch": 20,
+        "episode_length": 16,
+        "obstacle_density": 0.1,
+        "save_every": 50, # Set to a high number or None to disable for normal runs
+        "learning_rate": 0.01,
+        "gamma": 0.99, # Added gamma here
+        "epsilon_max": 1.0,
+        "epsilon_min": 0.1,
+        "renders": "renders/",
+        "solution_concept": ParetoSolutionConcept # Note: IQLAgent doesn't use this
+    }
+
+    try:
+        os.mkdir(exp_config["renders"])
+    except FileExistsError:
+        pass
+
+    final_reward = run_experiment(exp_config)
+    print(f"Final collective reward from the run: {final_reward}")
     print(f"Total execution time: {time.time() - init_time:.2f} seconds")
