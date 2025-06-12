@@ -5,13 +5,17 @@ import os
 import pandas as pd  # <-- ADD THIS LINE to import pandas
 from main import run_experiment # Import the function we just created
 
-def objective(trial: optuna.trial.Trial) -> float:
+ALGORITHM = "IQL"   # JALGT, IQL o NN
+
+def objective(trial: optuna.trial.Trial, solution_concept: str = None) -> float:
     """
     The objective function for Optuna.
     - Suggests hyperparameters.
     - Runs the experiment.
     - Returns the performance score.
     """
+
+
     # 1. Define the base configuration with fixed parameters
     base_config = {
         "num_agents": 2,
@@ -25,23 +29,34 @@ def objective(trial: optuna.trial.Trial) -> float:
         "save_every": None,  # Disable rendering to speed up
         "epsilon_max": 1.0,
         "renders": "renders/",
+        "algorithm": ALGORITHM,
+        "solution_concept": solution_concept,  # Use the solution concept from the trial
     }
 
     # 2. Suggest hyperparameters to be tuned using the 'trial' object
     learning_rate = trial.suggest_float("learning_rate", 1e-4, 1e-1, log=True)
     gamma = trial.suggest_float("gamma", 0.9, 0.999)
+    epsilon_max = trial.suggest_float("epsilon_max", 0.5, 1.0)
     epsilon_min = trial.suggest_float("epsilon_min", 0.01, 0.2)
-    
+    num_episodes = trial.suggest_int("num_episodes", 100, 500)
+    episode_length = trial.suggest_int("episode_length", 10, 50)
+
+    epochs = 10
+    episodes_per_epoch = num_episodes // epochs
+
     # 3. Create the final configuration for this trial
     trial_config = base_config.copy()
     trial_config.update({
         "learning_rate": learning_rate,
         "gamma": gamma,
         "epsilon_min": epsilon_min,
+        "epsilon_max": epsilon_max,
+        "episodes_per_epoch": episodes_per_epoch,
+        "episode_length": episode_length,
     })
 
     # 4. Run the experiment and return the score
-    final_score = run_experiment(trial_config)
+    final_score = run_experiment(trial_config, trial_number=trial.number)
 
     return final_score
 
@@ -56,14 +71,17 @@ if __name__ == "__main__":
     # 1. Create a study object.
     study = optuna.create_study(
         direction="maximize",
-        study_name="iql_pogema_tuning",
-        storage="sqlite:///pogema_tuning.db",
+        study_name="iql_pogema_tuning",         # cambiar el nombre del estudio jalgt o nn
+        storage="out/sqlite:///iql_pogema_tuning.db",
         load_if_exists=True
     )
     
     # 2. Start the optimization.
-    n_trials = 50 
-    study.optimize(objective, n_trials=n_trials)
+    if ALGORITHM == "IQL":
+        study.optimize(objective, timeout=7200)
+    elif ALGORITHM == "JALGT":
+        for solution_concept in ["Pareto", "Minimax", "Nash","Wellfare"]:
+            study.optimize(objective, timeout=7200)
 
     # 3. Print the results
     print("Study statistics: ")
@@ -84,7 +102,7 @@ if __name__ == "__main__":
 
     # We save the DataFrame to a csv file.
     # `index=False` is used to prevent pandas from writing row indices into the file.
-    csv_file_path = "optuna_results.csv"
+    csv_file_path = "out/optuna_results.csv"
     df.to_csv(csv_file_path, index=False)
 
     print(f"\nOptimization results have been saved to {csv_file_path}")

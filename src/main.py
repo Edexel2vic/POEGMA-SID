@@ -8,6 +8,7 @@ from solution_concepts import MinimaxSolutionConcept, ParetoSolutionConcept, Nas
 from game_model import GameModel
 import numpy as np
 from gymnasium import Wrapper
+import optuna 
 from pogema import pogema_v0, GridConfig
 from pogema.animation import AnimationMonitor, AnimationConfig
 from utils import draw_history
@@ -79,8 +80,19 @@ def run_experiment(config, pbar=None):
     game = GameModel(num_agents=config["num_agents"], num_states=config["num_states"],
                      num_actions=5)
     
-    # IMPORTANT: Ensure the algorithm uses the hyperparameters from the config
-    algorithms = [IQLAgent(agent_id=i, 
+    # IMPORTANT: Ensure the algorithm uses the hyperparameters from the 
+    if config["algorithm"] == "JALGT":
+        algorithms = [JALGT(agent_id=i,
+                           game=game,
+                           solution_concept=config["solution_concept"],
+                           gamma=config["gamma"],
+                           alpha=config["learning_rate"],
+                           epsilon=config["epsilon_max"],
+                           seed=1) 
+                    for i in range(game.num_agents)]
+        
+    elif config["algorithm"] == "IQL":
+        algorithms = [IQLAgent(agent_id=i, 
                            num_local_states=config["num_states"], 
                            num_individual_actions=5, 
                            epsilon_start=config["epsilon_max"], 
@@ -173,6 +185,7 @@ if __name__ == '__main__':
         "epsilon_max": 1.0,
         "epsilon_min": 0.1,
         "renders": "renders/",
+        "algorithm": "JALGT",
         "solution_concept": ParetoSolutionConcept # Note: IQLAgent doesn't use this
     }
 
