@@ -16,10 +16,13 @@ import random
 import optuna
 import collections
 from typing import List, Tuple
+from collections import deque, namedtuple
+import random
 
 # Configuración del dispositivo
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Usando dispositivo: {device}")
+
 
 
 class DQN(nn.Module):
@@ -73,7 +76,7 @@ class JALGTNN(MARLAlgorithm):
                            for i in range(self.game.num_agents)]
 
         self.loss_fn = nn.MSELoss()
-        self.metrics = {"td_error": [], "loss": []}
+        self.metrics = [{"td_error": [], "loss": []} for i in range(self.game.num_agents)]
 
         # Almacena las políticas individuales para cada agente en cada estado.
         # Shape: (num_agentes, num_estados, num_acciones_individuales)
@@ -120,29 +123,20 @@ class JALGTNN(MARLAlgorithm):
 
     def learn(self, joint_action: Tuple[int, ...], rewards: List[float], 
               states: List[int], next_states: List[int], terminated: Tuple[bool, ...]):
-        """
-        Actualiza los modelos Q de los agentes basados en una transición.
-        Maneja estados terminales.
-        """
-        # Asume que todos los agentes comparten el mismo estado (o usan su propio estado)
-        # Aquí usamos el estado del primer agente como referencia, asumiendo que son iguales
-        # o que el estado es una representación global. Si son diferentes, la lógica debería cambiar.
-        state = states[0] 
-        next_state = next_states[0]
+        
         joint_action_index = self.game.action_space_index[joint_action]
 
         for agent_id in range(self.game.num_agents):
             agent_reward = rewards[agent_id]
-            
-            # **CORRECCIÓN**: Si el agente está en un estado terminal, el valor del siguiente estado es 0.
+
             if terminated[agent_id]:
                 game_value_next_state = 0.0
             else:
-                game_value_next_state = self.value(agent_id, next_state)
+                game_value_next_state = self.value(agent_id, next_states[agent_id])
             
             td_target_value = agent_reward + self.gamma * game_value_next_state
 
-            state_tensor = self._state_to_tensor(state)
+            state_tensor = self._state_to_tensor(states[agent_id])
             predicted_q_values = self.q_models[agent_id](state_tensor)
 
             target_q_values = predicted_q_values.clone().detach()
@@ -154,12 +148,11 @@ class JALGTNN(MARLAlgorithm):
             loss.backward()
             self.optimizers[agent_id].step()
 
-            # Actualiza la política del agente en el estado actual después de aprender
-            self.update_policy(agent_id, state)
+            self.update_policy(agent_id, states[agent_id])
 
             td_error = td_target_value - predicted_q_values[0, joint_action_index].item()
-            self.metrics['td_error'].append(td_error)
-            self.metrics['loss'].append(loss.item())
+            self.metrics[agent_id]['td_error'].append(td_error)
+            self.metrics[agent_id]['loss'].append(loss.item())
 
     def set_epsilon(self, epsilon: float):
         self.epsilon = epsilon
@@ -237,29 +230,20 @@ def create_env(config, seed=42):
 def objective(trial: optuna.Trial) -> float:
     """Función objetivo para la optimización de hiperparámetros con Optuna."""
     # Sugerir hiperparámetros
-    learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-2, log=True)
-    gamma = trial.suggest_float("gamma", 0.9, 0.999)
+    learning_rate = trial.suggest_float("learning_rate", 0.000001, 0.1, log=True)
+    gamma = trial.suggest_float("gamma", 0.8, 0.999)
     n_units = trial.suggest_categorical("n_units", [64, 128, 256])
-    episodes_per_epoch = trial.suggest_int("episodes_per_epoch", 10, 50)
-    solution_concept_class_str = trial.suggest_categorical(
-        "solution_concept",
-        ["Pareto", "Nash", "Welfare"]
-    )
-    solution_concept_map = {
-        "Pareto": ParetoSolutionConcept,
-        "Nash": NashSolutionConcept,
-        "Welfare": WelfareSolutionConcept
-    }
-    solution_concept_class = solution_concept_map[solution_concept_class_str]
+    epsilon_min = trial.suggest_float("epsilon_min", 0.001, 1.0)
+    episode_length = trial.suggest_int("episode_length", 5, 70)
+
 
     exp_config = {
-        "num_agents": 2, "size": 4, "maps": 10, "num_states": 2**12, # 4096 estados posibles
-        "epochs": 100, "episode_length": 16, "obstacle_density": 0.1,
-        "save_every": None, "epsilon_max": 1.0, "epsilon_min": 0.1,
+        "num_agents": 2, "size": 4, "maps": 10, "num_states": 4*16*16, # 4096 estados posibles
+        "epochs": 10, "episode_length": episode_length, "obstacle_density": 0.1,
+        "save_every": None, "epsilon_max": 1.0, "epsilon_min": epsilon_min,
         "renders": "renders/",
         "learning_rate": learning_rate, "gamma": gamma, "n_units": n_units,
-        "episodes_per_epoch": episodes_per_epoch,
-        "solution_concept": solution_concept_class
+        "solution_concept": ParetoSolutionConcept
     }
     
             
@@ -273,12 +257,14 @@ def objective(trial: optuna.Trial) -> float:
                          n_units=exp_config["n_units"],
                          seed=3)
 
-    epsilon_diff = (exp_config["epsilon_max"] - exp_config["epsilon_min"]) / exp_config["episodes_per_epoch"]
+    total_epsiodes = exp_config["episode_length"] * exp_config["epochs"]
+    epsilon_diff = (exp_config["epsilon_max"] - exp_config["epsilon_min"]) / total_epsiodes
+    current_epsilon = exp_config["epsilon_max"]
     reward_per_epoch = []
 
     for epoch in range(exp_config["epochs"]):
         # Entrenamiento
-        for ep in range(exp_config["episodes_per_epoch"]):
+        for ep in range(exp_config["episode_length"]):
             env = create_env(config=exp_config, seed=ep % exp_config["maps"])
             observations, infos = env.reset()
             terminated = truncated = [False] * exp_config["num_agents"]
@@ -294,36 +280,34 @@ def objective(trial: optuna.Trial) -> float:
                 algorithms.learn(actions, rewards, states, next_states, tuple(terminated))
                 
                 states = next_states
-            
-            algorithms.set_epsilon(max(exp_config["epsilon_min"], exp_config["epsilon_max"] - epsilon_diff * (ep + 1)))
+
+            current_epsilon = max(exp_config["epsilon_min"], current_epsilon - epsilon_diff)
+            algorithms.set_epsilon(current_epsilon)
 
         # Evaluación
-        all_eval_rewards = []
-        collective_reward = [] # Métrica de éxito (cuántos agentes llegan a la meta)
-        for ep in range(exp_config["maps"]):
-            env = create_env(config=exp_config, seed=ep)
-            observations, infos = env.reset()
-            terminated = truncated = [False] * exp_config["num_agents"]
-            total_rewards = [0.0] * exp_config["num_agents"]
+    all_eval_rewards = []
+    collective_reward = [] # Métrica de éxito (cuántos agentes llegan a la meta)
+    for ep in range(exp_config["maps"]):
+        env = create_env(config=exp_config, seed=ep)
+        observations, infos = env.reset()
+        terminated = truncated = [False] * exp_config["num_agents"]
+        total_rewards = [0.0] * exp_config["num_agents"]
             
-            while not all(terminated) and not all(truncated):
-                states = [obs_to_state(obs) for obs in observations]
+        while not all(terminated) and not all(truncated):
+            states = [obs_to_state(obs) for obs in observations]
                 
-                # **CORRECCIÓN**: Pasar agent_id y el estado de ese agente a select_action
-                actions = tuple([algorithms.select_action(i, states[i], train=False) for i in range(game.num_agents)])
+            # **CORRECCIÓN**: Pasar agent_id y el estado de ese agente a select_action
+            actions = tuple([algorithms.select_action(i, states[i], train=False) for i in range(game.num_agents)])
                 
-                observations, rewards, terminated, truncated, infos = env.step(actions)
-                total_rewards = [total_rewards[i] + rewards[i] for i in range(exp_config["num_agents"])]
+            observations, rewards, terminated, truncated, infos = env.step(actions)
+            total_rewards = [total_rewards[i] + rewards[i] for i in range(exp_config["num_agents"])]
                 
-            all_eval_rewards.append(sum(total_rewards))
-            collective_reward.append(sum(terminated)) # Suma de booleanos (True=1, False=0)
+        all_eval_rewards.append(sum(total_rewards))
+        collective_reward.append(sum(terminated)) # Suma de booleanos (True=1, False=0)
 
-        epoch_reward = np.mean(all_eval_rewards)
-        reward_per_epoch.append(epoch_reward)
+    epoch_reward = np.mean(all_eval_rewards)
+    reward_per_epoch.append(epoch_reward)
         
-        trial.report(epoch_reward, epoch)
-        if trial.should_prune():
-            raise optuna.exceptions.TrialPruned()
 
     final_metric = sum(all_eval_rewards)
     collective_reward_mean = sum(collective_reward)
@@ -334,7 +318,7 @@ def objective(trial: optuna.Trial) -> float:
 
 def save_results_callback(study: optuna.study.Study, trial: optuna.trial.FrozenTrial):
     """Callback para guardar los resultados de cada trial de Optuna en un archivo CSV."""
-    CSV_FILE = "optuna_marl_results.csv"
+    CSV_FILE = "pareto_nn.csv"
 
     # Encabezado del CSV (consistente para cada escritura)
     params_keys = list(trial.params.keys())
@@ -375,7 +359,7 @@ if __name__ == '__main__':
     # 2. Ejecutar la optimización con el callback
     study.optimize(
         objective,
-        n_trials=50,
+        n_trials=100,
         callbacks=[save_results_callback] # Añadir el callback aquí
     )
 
