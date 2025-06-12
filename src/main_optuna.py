@@ -255,7 +255,7 @@ if __name__ == "__main__":
     
     # FIXED: Create separate studies for each solution concept to provide better tracking
     if ALGORITHM == "JALGT":
-        solution_concepts = [ParetoSolutionConcept, MinimaxSolutionConcept, NashSolutionConcept, WelfareSolutionConcept]
+        solution_concepts = [NashSolutionConcept, MinimaxSolutionConcept, NashSolutionConcept, WelfareSolutionConcept]
         
         for i, solution_concept in enumerate(solution_concepts):
             solution_concept_name = solution_concept.__name__
@@ -284,8 +284,6 @@ if __name__ == "__main__":
             # Optimize for this solution concept
             study.optimize(
                 lambda trial: objective(trial, solution_concept), 
-                n_trials=5,
-                timeout=7200, 
                 callbacks=[callback_after_trial]
             )
             
@@ -333,7 +331,7 @@ if __name__ == "__main__":
                 if csv_path:
                     print(f"\n[Trial {trial.number}] Intermediate results saved to: {csv_path}")
         
-        study.optimize(objective, timeout=7200, callbacks=[callback_after_trial])
+        study.optimize(objective, timeout=10800, callbacks=[callback_after_trial])
         
         # 3. Print the results
         print("\n" + "="*50)
