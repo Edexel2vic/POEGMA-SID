@@ -255,7 +255,7 @@ if __name__ == "__main__":
     
     # FIXED: Create separate studies for each solution concept to provide better tracking
     if ALGORITHM == "JALGT":
-        solution_concepts = [NashSolutionConcept, MinimaxSolutionConcept, NashSolutionConcept, WelfareSolutionConcept]
+        solution_concepts = [WelfareSolutionConcept, MinimaxSolutionConcept, ParetoSolutionConcept, NashSolutionConcept]
         
         for i, solution_concept in enumerate(solution_concepts):
             solution_concept_name = solution_concept.__name__
@@ -284,6 +284,7 @@ if __name__ == "__main__":
             # Optimize for this solution concept
             study.optimize(
                 lambda trial: objective(trial, solution_concept), 
+                n_trials=300,  # Adjust number of trials as needed
                 callbacks=[callback_after_trial]
             )
             

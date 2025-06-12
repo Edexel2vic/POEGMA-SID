@@ -227,15 +227,15 @@ if __name__ == '__main__':
     # This block can now be used for a single, standard run
     init_time = time.time()
     exp_config = {
-        "num_agents": 2,
-        "size": 4,
+        "num_agents": 4,
+        "size": 6,
         "maps": 10,
         "num_states": 16 * 16 * 4,
         "epochs": 20,
-        "episodes_per_epoch": 20,
+        "episodes_per_epoch": 100,
         "episode_length": 16,
-        "obstacle_density": 0.1,
-        "save_every": 50, # Set to a high number or None to disable for normal runs
+        "obstacle_density": 0.2,
+        "save_every": 10, # Set to a high number or None to disable for normal runs
         "learning_rate": 0.01,
         "gamma": 0.99, # Added gamma here
         "epsilon_max": 1.0,
@@ -263,3 +263,4 @@ if __name__ == '__main__':
         print(f"Final collective reward: {result}")
     
     print(f"Total execution time: {time.time() - init_time:.2f} seconds")
+WelfareSolutionConcept
