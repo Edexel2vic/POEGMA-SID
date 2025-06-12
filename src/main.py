@@ -46,10 +46,13 @@ class RewardWrapper(Wrapper):
 
 
 def create_env(config, seed=42):
+    # Use the base_seed if provided for more randomness
+    actual_seed = config.get('base_seed', 42) + seed
+    
     grid_config = GridConfig(num_agents=config["num_agents"],
                              size=config["size"],
                              density=config["obstacle_density"],
-                             seed=seed,
+                             seed=actual_seed,  # Use the modified seed
                              max_episode_steps=config["episode_length"],
                              obs_radius=1,
                              on_target="finish",
@@ -72,23 +75,33 @@ def create_env(config, seed=42):
 
 
 # We wrap the main logic in a function that takes the config and returns the score
-def run_experiment(config, pbar=None):
+def run_experiment(config, pbar=None, trial_number=None):
     """
     Runs a single experiment with a given configuration.
-    Returns the final collective evaluation reward.
+    Returns detailed metrics including timing information.
     """
+    experiment_start_time = time.time()
+    
+    # Get unique seed for this run
+    run_seed = config.get('base_seed', 42)
+    
+    # Initialize timing tracking
+    track_timing = config.get('track_timing', False)
+    show_progress = config.get('show_progress', True)
+    episode_training_times = []
+    
     game = GameModel(num_agents=config["num_agents"], num_states=config["num_states"],
                      num_actions=5)
     
-    # IMPORTANT: Ensure the algorithm uses the hyperparameters from the 
+    # IMPORTANT: Use unique seeds for algorithm initialization
     if config["algorithm"] == "JALGT":
         algorithms = [JALGT(agent_id=i,
                            game=game,
-                           solution_concept=config["solution_concept"],
+                           solution_concept=config["solution_concept"](),
                            gamma=config["gamma"],
                            alpha=config["learning_rate"],
                            epsilon=config["epsilon_max"],
-                           seed=1) 
+                           seed=run_seed + i) # Use unique seed per agent
                     for i in range(game.num_agents)]
         
     elif config["algorithm"] == "IQL":
@@ -97,28 +110,38 @@ def run_experiment(config, pbar=None):
                            num_individual_actions=5, 
                            epsilon_start=config["epsilon_max"], 
                            epsilon_end=config["epsilon_min"],
-                           gamma=config["gamma"], # Use gamma from config
+                           gamma=config["gamma"],
                            alpha=config["learning_rate"], 
-                           seed=i)
+                           seed=run_seed + i)  # Use unique seed per agent
                   for i in range(game.num_agents)]
 
     epsilon_diff = (config["epsilon_max"] - config["epsilon_min"]) / config["episodes_per_epoch"]
     
-    # We remove metric lists from the main function as Optuna only needs the final score
-    # reward_per_epoch = []
-    # td_error_per_epoch = []
-
     num_epochs = config["epochs"]
+    total_episodes = num_epochs * config["episodes_per_epoch"]
+    episode_counter = 0
+    
     if pbar:
         iterator = range(num_epochs)
+    elif show_progress:
+        # Using tqdm if no external progress bar is provided and progress is enabled
+        desc = f"Experiment {trial_number}" if trial_number else "Running Experiment"
+        iterator = tqdm(range(num_epochs), desc=desc)
     else:
-        # Using tqdm if no external progress bar is provided
-        iterator = tqdm(range(num_epochs), desc="Running Experiment")
+        # No progress bar for parallel runs
+        iterator = range(num_epochs)
 
+    # Training phase
     for epoch in iterator:
-        # Training
         for ep in range(config["episodes_per_epoch"]):
-            if pbar: pbar.set_postfix({'modo': 'entrenamiento', 'episodio': ep})
+            episode_start_time = time.time()
+            
+            if pbar: 
+                pbar.set_postfix({
+                    'modo': 'entrenamiento', 
+                    'episodio': f"{episode_counter+1}/{total_episodes}",
+                    'trial': trial_number or 'N/A'
+                })
             
             env = create_env(config=config, seed=ep % config["maps"])
             observations, infos = env.reset()
@@ -138,12 +161,26 @@ def run_experiment(config, pbar=None):
                 states = [obs_to_state(observations[i]) for i in range(game.num_agents)]
 
             [algorithms[i].set_epsilon(config["epsilon_max"] - epsilon_diff * ep) for i in range(game.num_agents)]
+            
+            # Track episode training time
+            if track_timing:
+                episode_time = time.time() - episode_start_time
+                episode_training_times.append(episode_time)
+            
+            episode_counter += 1
 
-    # Evaluation (after all training epochs are done)
+    # Evaluation phase (after all training epochs are done)
     evaluation_episodes = config["maps"]
     all_eval_rewards = []
+    individual_rewards_per_episode = []
+    
     for ep in range(evaluation_episodes):
-        if pbar: pbar.set_postfix({'modo': 'evaluación...', 'episodio': ep})
+        if pbar: 
+            pbar.set_postfix({
+                'modo': 'evaluación', 
+                'episodio': f"{ep+1}/{evaluation_episodes}",
+                'trial': trial_number or 'N/A'
+            })
         
         env = create_env(config=config, seed=ep)
         observations, infos = env.reset()
@@ -158,13 +195,32 @@ def run_experiment(config, pbar=None):
             observations, rewards, terminated, truncated, infos = env.step(actions)
             total_rewards = [total_rewards[i] + rewards[i] for i in range(config["num_agents"])]
         
-        all_eval_rewards.append(sum(total_rewards))
+        collective_reward = sum(total_rewards)
+        all_eval_rewards.append(collective_reward)
+        individual_rewards_per_episode.append(total_rewards.copy())
 
-    final_score = sum(all_eval_rewards)
-    if pbar:
-        pbar.set_description(f"Final Score for Trial: {final_score:.4f}")
+    # Calculate final metrics
+    final_collective_reward = sum(all_eval_rewards)
+    mean_individual_rewards = np.mean(individual_rewards_per_episode, axis=0).tolist()
+    total_training_time = time.time() - experiment_start_time
     
-    return final_score
+    if pbar and show_progress:
+        pbar.set_description(f"Trial {trial_number}: Score {final_collective_reward:.2f}")
+    
+    # Return detailed metrics
+    if track_timing:
+        return {
+            'collective_reward': final_collective_reward,
+            'individual_rewards': mean_individual_rewards,
+            'episode_training_times': episode_training_times,
+            'total_training_time': total_training_time,
+            'num_episodes': total_episodes,
+            'evaluation_rewards': all_eval_rewards,
+            'individual_rewards_per_evaluation': individual_rewards_per_episode
+        }
+    else:
+        # For backward compatibility, return just the score if timing is not tracked
+        return final_collective_reward
 
 
 if __name__ == '__main__':
@@ -186,7 +242,8 @@ if __name__ == '__main__':
         "epsilon_min": 0.1,
         "renders": "renders/",
         "algorithm": "JALGT",
-        "solution_concept": ParetoSolutionConcept # Note: IQLAgent doesn't use this
+        "solution_concept": ParetoSolutionConcept, # Note: IQLAgent doesn't use this
+        "track_timing": True  # Enable detailed timing for standalone runs
     }
 
     try:
@@ -194,6 +251,15 @@ if __name__ == '__main__':
     except FileExistsError:
         pass
 
-    final_reward = run_experiment(exp_config)
-    print(f"Final collective reward from the run: {final_reward}")
+    result = run_experiment(exp_config)
+    
+    if isinstance(result, dict):
+        print(f"Final collective reward: {result['collective_reward']}")
+        print(f"Individual rewards (mean): {result['individual_rewards']}")
+        print(f"Total training time: {result['total_training_time']:.2f} seconds")
+        print(f"Average time per episode: {result['total_training_time']/result['num_episodes']:.4f} seconds")
+        print(f"Total episodes: {result['num_episodes']}")
+    else:
+        print(f"Final collective reward: {result}")
+    
     print(f"Total execution time: {time.time() - init_time:.2f} seconds")
