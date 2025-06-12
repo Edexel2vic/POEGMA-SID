@@ -284,6 +284,7 @@ if __name__ == "__main__":
             # Optimize for this solution concept
             study.optimize(
                 lambda trial: objective(trial, solution_concept), 
+                n_trials = 300,
                 callbacks=[callback_after_trial]
             )
             
