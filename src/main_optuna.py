@@ -10,8 +10,8 @@ from concurrent.futures import ProcessPoolExecutor
 from main import run_experiment # Import the function we just created
 from solution_concepts import ParetoSolutionConcept, MinimaxSolutionConcept, NashSolutionConcept, WelfareSolutionConcept
 
-ALGORITHM = "JALGT"   # JALGT, IQL o NN
-NUM_PARALLEL_RUNS = 4  # Number of parallel runs per trial
+ALGORITHM = "IQL"   # JALGT, IQL o NN
+NUM_PARALLEL_RUNS = 6  # Number of parallel runs per trial
 
 def run_single_trial(config, trial_number, run_id, base_seed):
     """
@@ -332,7 +332,7 @@ if __name__ == "__main__":
                 if csv_path:
                     print(f"\n[Trial {trial.number}] Intermediate results saved to: {csv_path}")
         
-        study.optimize(objective, timeout=10800, callbacks=[callback_after_trial])
+        study.optimize(objective, n_trials=2000, timeout=10800, callbacks=[callback_after_trial])
         
         # 3. Print the results
         print("\n" + "="*50)

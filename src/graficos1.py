@@ -1,111 +1,191 @@
+# plot_results.py
+
+import os
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-import numpy as np
+import optuna
+from itertools import combinations
 
-# Cargar los datos
-df = pd.read_csv('src/out/jalgt_minimaxsolutionconcept_optuna_results_detailed.csv')
+# --- CONFIGURATION ---
+# Change these values to match the experiment you want to plot
+ALGORITHM = "JALGT"  # or "JALGT"
+# For JALGT, the script will loop through all concepts. For IQL, this is ignored.
+SOLUTION_CONCEPTS = ["WelfareSolutionConcept", "MinimaxSolutionConcept", "ParetoSolutionConcept", "NashSolutionConcept"] 
 
-# Análisis básico
+# Directory to save the generated plots
+PLOTS_OUTPUT_DIR = "plots"
 
-# Configurar el estilo de los gráficos
-sns.set_style("whitegrid")
-plt.figure(figsize=(12, 6))
+# --- HELPER FUNCTIONS ---
 
-# Evolución del valor objetivo durante la optimización
-plt.subplot(1, 2, 1)
-plt.plot(df['number'], df['value'], 'b-', label='Valor objetivo')
-plt.xlabel('Número de trial')
-plt.ylabel('Valor objetivo')
-plt.title('Evolución del valor objetivo')
-plt.legend()
+def load_study_and_df(algorithm, solution_concept=None):
+    """Loads the Optuna study and the corresponding CSV DataFrame."""
+    
+    if algorithm == "IQL":
+        study_name = f"iql_pogema_tuning"
+        db_file = f"out/iql_pogema_tuning.db"
+        csv_file = f"out/iql_optuna_results_detailed.csv"
+    elif algorithm == "JALGT":
+        concept_name_lower = solution_concept.lower()
+        study_name = f"jalgt_{concept_name_lower}_pogema_tuning"
+        db_file = f"out/{study_name}.db"
+        csv_file = f"out/jalgt_{concept_name_lower}_optuna_results_detailed.csv"
+    else:
+        raise ValueError(f"Algorithm '{algorithm}' not recognized.")
 
-# Distribución del valor objetivo
-plt.subplot(1, 2, 2)
-sns.histplot(df['value'], bins=20, kde=True)
-plt.xlabel('Valor objetivo')
-plt.ylabel('Frecuencia')
-plt.title('Distribución del valor objetivo')
+    # Check if files exist
+    if not os.path.exists(db_file) or not os.path.exists(csv_file):
+        print(f"Warning: Could not find results for {algorithm} {solution_concept or ''}. Skipping.")
+        print(f"  - Looked for DB: {db_file}")
+        print(f"  - Looked for CSV: {csv_file}")
+        return None, None
+        
+    storage_url = f"sqlite:///{db_file}"
+    
+    try:
+        study = optuna.load_study(study_name=study_name, storage=storage_url)
+        df = pd.read_csv(csv_file)
+        return study, df
+    except Exception as e:
+        print(f"Error loading study '{study_name}' from '{db_file}': {e}")
+        return None, None
 
-plt.tight_layout()
-plt.show()
+def create_output_dir(base_dir, sub_dir=None):
+    """Creates the output directory for plots if it doesn't exist."""
+    path = os.path.join(base_dir, sub_dir) if sub_dir else base_dir
+    os.makedirs(path, exist_ok=True)
+    return path
 
-# Análisis de hiperparámetros
-params = ['episode_length', 'epsilon_max', 'epsilon_min', 'gamma', 'learning_rate', 'num_episodes']
+# --- PLOTTING FUNCTIONS ---
 
-plt.figure(figsize=(15, 10))
-for i, param in enumerate(params, 1):
-    plt.subplot(2, 3, i)
-    plt.scatter(df[f'params_{param}'], df['value'], alpha=0.5)
-    plt.xlabel(param)
-    plt.ylabel('Valor objetivo')
-    plt.title(f'Impacto de {param}')
+def plot_reward_distribution(df, output_dir, file_prefix):
+    """
+    Plots the distribution of the mean collective rewards across all trials.
+    This helps visualize the overall performance landscape.
+    """
+    plt.figure(figsize=(10, 6))
+    
+    # Use the 'value' column which is the mean collective reward for the trial
+    reward_col = 'value' 
+    if reward_col not in df.columns:
+        print(f"Warning: '{reward_col}' column not found for distribution plot. Skipping.")
+        return
 
-plt.tight_layout()
-plt.show()
+    sns.histplot(df[reward_col], kde=True, bins=30)
+    
+    mean_reward = df[reward_col].mean()
+    plt.axvline(mean_reward, color='r', linestyle='--', label=f'Mean: {mean_reward:.2f}')
+    
+    plt.title('Distribution of Mean Collective Rewards Across Trials')
+    plt.xlabel('Mean Collective Reward')
+    plt.ylabel('Frequency (Number of Trials)')
+    plt.legend()
+    plt.grid(True, which='both', linestyle='--', linewidth=0.5)
+    
+    plot_path = os.path.join(output_dir, f"{file_prefix}_reward_distribution.png")
+    plt.savefig(plot_path)
+    plt.close()
+    print(f"  Saved reward distribution plot to: {plot_path}")
 
-# Correlación entre parámetros y valor objetivo
-corr_matrix = df[[f'params_{p}' for p in params + ['value']]].corr()
-plt.figure(figsize=(10, 8))
-sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', center=0)
-plt.title('Matriz de correlación')
-plt.show()
+def plot_optuna_visualizations(study, output_dir, file_prefix):
+    """
+    Generates and saves a suite of standard, highly informative Optuna plots.
+    These are interactive HTML files.
+    """
+    if not study:
+        return
 
-# Análisis de las recompensas
-reward_cols = ['user_attrs_collective_reward_mean', 
-              'user_attrs_individual_reward_agent0_mean',
-              'user_attrs_total_individual_reward_agent0_mean']
+    # 1. Optimization History: Shows how the best score improves over trials.
+    try:
+        fig = optuna.visualization.plot_optimization_history(study)
+        path = os.path.join(output_dir, f"{file_prefix}_optimization_history.html")
+        fig.write_html(path)
+        print(f"  Saved optimization history plot to: {path}")
+    except Exception as e:
+        print(f"Could not generate optimization history plot: {e}")
 
-plt.figure(figsize=(15, 5))
-for i, col in enumerate(reward_cols, 1):
-    plt.subplot(1, 3, i)
-    sns.scatterplot(x=df['value'], y=df[col])
-    plt.xlabel('Valor objetivo')
-    plt.ylabel(col.replace('user_attrs_', '').replace('_', ' ').title())
-    plt.title(f'Relación con {col.split("_")[-2]}')
+    # 2. Parameter Importance: Shows which hyperparameters were most influential.
+    try:
+        fig = optuna.visualization.plot_param_importances(study)
+        path = os.path.join(output_dir, f"{file_prefix}_param_importances.html")
+        fig.write_html(path)
+        print(f"  Saved parameter importance plot to: {path}")
+    except Exception as e:
+        print(f"Could not generate parameter importance plot: {e}")
 
-plt.tight_layout()
-plt.show()
+    # 3. Slice Plots (addresses your "line plot" request)
+    # This is the best way to see how the objective function changes with each parameter.
+    # The x-axis is the parameter, and the y-axis is the reward.
+    try:
+        fig = optuna.visualization.plot_slice(study)
+        # Note: Optuna automatically handles the log scale for 'learning_rate'!
+        path = os.path.join(output_dir, f"{file_prefix}_slice_plots.html")
+        fig.write_html(path)
+        print(f"  Saved slice plots to: {path}")
+    except Exception as e:
+        print(f"Could not generate slice plots: {e}")
 
-# Tiempos de entrenamiento
-time_cols = ['user_attrs_training_time_per_episode_mean', 
-            'user_attrs_training_time_total_mean']
+    # 4. Contour Plots (Bonus): Shows interactions between pairs of hyperparameters.
+    params_to_plot = [p for p in study.best_params.keys() if len(study.best_params) > 1]
+    if len(params_to_plot) >= 2:
+        param_pairs = list(combinations(params_to_plot, 2))
+        for pair in param_pairs:
+            try:
+                fig = optuna.visualization.plot_contour(study, params=list(pair))
+                path = os.path.join(output_dir, f"{file_prefix}_contour_{pair[0]}_vs_{pair[1]}.html")
+                fig.write_html(path)
+                print(f"  Saved contour plot for {pair} to: {path}")
+            except Exception as e:
+                # This can fail if there isn't enough data diversity for a pair
+                print(f"Could not generate contour plot for {pair}: {e}")
 
-plt.figure(figsize=(12, 5))
-plt.subplot(1, 2, 1)
-sns.scatterplot(x=df['duration'], y=df['value'])
-plt.xlabel('Duración del trial (segundos)')
-plt.ylabel('Valor objetivo')
+    # 5. Parallel Coordinate Plot (Bonus): Great for seeing high-performing regions.
+    try:
+        fig = optuna.visualization.plot_parallel_coordinate(study)
+        path = os.path.join(output_dir, f"{file_prefix}_parallel_coordinate.html")
+        fig.write_html(path)
+        print(f"  Saved parallel coordinate plot to: {path}")
+    except Exception as e:
+        print(f"Could not generate parallel coordinate plot: {e}")
 
-plt.subplot(1, 2, 2)
-sns.scatterplot(x=df[time_cols[1]], y=df['value'])
-plt.xlabel('Tiempo total de entrenamiento')
-plt.ylabel('Valor objetivo')
 
-plt.tight_layout()
-plt.show()
+def main():
+    """Main function to generate plots based on the configuration."""
+    print("--- Starting Result Plotting Script ---")
+    
+    if ALGORITHM == "IQL":
+        print(f"\nProcessing algorithm: {ALGORITHM}")
+        study, df = load_study_and_df(ALGORITHM)
+        if study and df is not None:
+            output_dir = create_output_dir(PLOTS_OUTPUT_DIR, ALGORITHM.lower())
+            
+            print(f"Generating plots for {ALGORITHM}...")
+            # Plot 1: Reward Distribution
+            plot_reward_distribution(df, output_dir, ALGORITHM.lower())
+            
+            # Plot 2: Suite of Optuna's interactive plots
+            plot_optuna_visualizations(study, output_dir, ALGORITHM.lower())
+            
+    elif ALGORITHM == "JALGT":
+        print(f"\nProcessing algorithm: {ALGORITHM}")
+        for concept in SOLUTION_CONCEPTS:
+            print(f"\n--- Processing Solution Concept: {concept} ---")
+            study, df = load_study_and_df(ALGORITHM, concept)
+            if study and df is not None:
+                # Create a sub-directory for each concept's plots
+                output_dir = create_output_dir(PLOTS_OUTPUT_DIR, f"{ALGORITHM.lower()}/{concept.lower()}")
+                file_prefix = f"{ALGORITHM.lower()}_{concept.lower()}"
+                
+                print(f"Generating plots for {ALGORITHM} - {concept}...")
+                # Plot 1: Reward Distribution
+                plot_reward_distribution(df, output_dir, file_prefix)
+                
+                # Plot 2: Suite of Optuna's interactive plots
+                plot_optuna_visualizations(study, output_dir, file_prefix)
+    
+    print("\n--- Plotting complete! ---")
+    print(f"All plots saved in the '{PLOTS_OUTPUT_DIR}/' directory.")
 
-# Análisis de las ejecuciones paralelas
-runs = ['run_0', 'run_1', 'run_2', 'run_3']
-collective_rewards = [df[f'user_attrs_{r}_collective_reward'] for r in runs]
 
-plt.figure(figsize=(10, 6))
-for i, rewards in enumerate(collective_rewards, 1):
-    sns.kdeplot(rewards, label=f'Ejecución {i-1}')
-plt.xlabel('Recompensa colectiva')
-plt.ylabel('Densidad')
-plt.title('Distribución de recompensas por ejecución paralela')
-plt.legend()
-plt.show()
-
-# Mejor trial
-best_trial = df.loc[df['value'].idxmax()]
-print("\nDetalles del mejor trial:")
-print(f"Número: {best_trial['number']}")
-print(f"Valor: {best_trial['value']}")
-print(f"Duración: {best_trial['duration']} segundos")
-print("Parámetros:")
-for param in params:
-    print(f"  {param}: {best_trial[f'params_{param}']}")
-print(f"Recompensa colectiva media: {best_trial['user_attrs_collective_reward_mean']}")
-print(f"Recompensa individual media (agente 0): {best_trial['user_attrs_individual_reward_agent0_mean']}")
+if __name__ == "__main__":
+    main()

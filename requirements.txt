@@ -8,3 +8,4 @@ tqdm
 jupyter
 numba
 optuna
+kaleido
