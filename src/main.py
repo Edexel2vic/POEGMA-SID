@@ -225,42 +225,43 @@ def run_experiment(config, pbar=None, trial_number=None):
 
 if __name__ == '__main__':
     # This block can now be used for a single, standard run
-    init_time = time.time()
-    exp_config = {
-        "num_agents": 4,
-        "size": 6,
-        "maps": 10,
-        "num_states": 16 * 16 * 4,
-        "epochs": 20,
-        "episodes_per_epoch": 100,
-        "episode_length": 16,
-        "obstacle_density": 0.2,
-        "save_every": 10, # Set to a high number or None to disable for normal runs
-        "learning_rate": 0.01,
-        "gamma": 0.99, # Added gamma here
-        "epsilon_max": 1.0,
-        "epsilon_min": 0.1,
-        "renders": "renders/",
-        "algorithm": "JALGT",
-        "solution_concept": ParetoSolutionConcept, # Note: IQLAgent doesn't use this
-        "track_timing": True  # Enable detailed timing for standalone runs
-    }
+    for num_agents in range(2, 5):
+        init_time = time.time()
+        exp_config = {
+            "num_agents": num_agents,
+            "size": 4,
+            "maps": 10,
+            "num_states": 16 * 16 * 4,
+            "epochs": 10,
+            "episodes_per_epoch": 16,
+            "episode_length": 42,
+            "obstacle_density": 0.2,
+            "save_every": 10, # Set to a high number or None to disable for normal runs
+            "learning_rate": 0.0499944119248388,
+            "gamma": 0.9879994331002274, # Added gamma here
+            "epsilon_max": 0.62439147416255,
+            "epsilon_min": 0.0807327044532076,
+            "renders": "renders/",
+            "algorithm": "JALGT",
+            "solution_concept": ParetoSolutionConcept, # Note: IQLAgent doesn't use this
+            "track_timing": True  # Enable detailed timing for standalone runs
+        }
 
-    try:
-        os.mkdir(exp_config["renders"])
-    except FileExistsError:
-        pass
+        try:
+            os.mkdir(exp_config["renders"])
+        except FileExistsError:
+            pass
 
-    result = run_experiment(exp_config)
-    
-    if isinstance(result, dict):
-        print(f"Final collective reward: {result['collective_reward']}")
-        print(f"Individual rewards (mean): {result['individual_rewards']}")
-        print(f"Total training time: {result['total_training_time']:.2f} seconds")
-        print(f"Average time per episode: {result['total_training_time']/result['num_episodes']:.4f} seconds")
-        print(f"Total episodes: {result['num_episodes']}")
-    else:
-        print(f"Final collective reward: {result}")
-    
-    print(f"Total execution time: {time.time() - init_time:.2f} seconds")
+        result = run_experiment(exp_config)
+        
+        if isinstance(result, dict):
+            print(f"Final collective reward: {result['collective_reward']}")
+            print(f"Individual rewards (mean): {result['individual_rewards']}")
+            print(f"Total training time: {result['total_training_time']:.2f} seconds")
+            print(f"Average time per episode: {result['total_training_time']/result['num_episodes']:.4f} seconds")
+            print(f"Total episodes: {result['num_episodes']}")
+        else:
+            print(f"Final collective reward: {result}")
+        
+        print(f"Total execution time: {time.time() - init_time:.2f} seconds")
 WelfareSolutionConcept
