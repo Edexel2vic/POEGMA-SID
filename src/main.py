@@ -1,5 +1,3 @@
-# main.py
-
 import os
 import time
 from tqdm import tqdm
@@ -58,18 +56,16 @@ def create_env(config, seed=42):
                              on_target="finish",
                              render_mode=None)
     # Disable animations during hyperparameter search for speed
-    if config.get("save_every") is not None:
-        animation_config = AnimationConfig(directory='renders/',
+ 
+    animation_config = AnimationConfig(directory='renders/',
                                            static=False,
                                            show_agents=True,
                                            egocentric_idx=None,
                                            save_every_idx_episode=config["save_every"],
                                            show_border=True,
                                            show_lines=True)
-        env = pogema_v0(grid_config)
-        env = AnimationMonitor(env, animation_config=animation_config)
-    else:
-        env = pogema_v0(grid_config)
+    env = pogema_v0(grid_config)
+    env = AnimationMonitor(env, animation_config=animation_config)
         
     return RewardWrapper(env)
 
@@ -177,7 +173,7 @@ def run_experiment(config, pbar=None, trial_number=None):
     for ep in range(evaluation_episodes):
         if pbar: 
             pbar.set_postfix({
-                'modo': 'evaluación', 
+                'modo': 'evaluaciÃ³n', 
                 'episodio': f"{ep+1}/{evaluation_episodes}",
                 'trial': trial_number or 'N/A'
             })
@@ -195,6 +191,9 @@ def run_experiment(config, pbar=None, trial_number=None):
             observations, rewards, terminated, truncated, infos = env.step(actions)
             total_rewards = [total_rewards[i] + rewards[i] for i in range(config["num_agents"])]
         
+        env.save_animation(f"{exp_config['renders']}/{'Jalgt-Welfare'}-den{ep}{exp_config['obstacle_density']}-size{exp_config['size']}-num_agents{exp_config['num_agents']}.svg",
+                                   AnimationConfig(egocentric_idx=None, show_border=True, show_lines=True))
+                                   
         collective_reward = sum(total_rewards)
         all_eval_rewards.append(collective_reward)
         individual_rewards_per_episode.append(total_rewards.copy())
@@ -226,41 +225,45 @@ def run_experiment(config, pbar=None, trial_number=None):
 if __name__ == '__main__':
     # This block can now be used for a single, standard run
     for num_agents in range(2, 5):
-        init_time = time.time()
-        exp_config = {
-            "num_agents": num_agents,
-            "size": 4,
-            "maps": 10,
-            "num_states": 16 * 16 * 4,
-            "epochs": 10,
-            "episodes_per_epoch": 16,
-            "episode_length": 42,
-            "obstacle_density": 0.2,
-            "save_every": 10, # Set to a high number or None to disable for normal runs
-            "learning_rate": 0.0499944119248388,
-            "gamma": 0.9879994331002274, # Added gamma here
-            "epsilon_max": 0.62439147416255,
-            "epsilon_min": 0.0807327044532076,
-            "renders": "renders/",
-            "algorithm": "JALGT",
-            "solution_concept": ParetoSolutionConcept, # Note: IQLAgent doesn't use this
-            "track_timing": True  # Enable detailed timing for standalone runs
-        }
+        for size in [4, 6, 8]:
+            for obs_density in [(x * (size / 4.0)) / (num_agents - 1.0) for x in [0.0, 0.1, 0.2, 0.3]]:
+                init_time = time.time()
+                exp_config = {
+                    "num_agents": num_agents,
+                    "size": size,
+                    "maps": 10,
+                    "num_states": 16 * 16 * 4,
+                    "epochs": 10,
+                    "episodes_per_epoch": 34,
+                    "episode_length": 14,
+                    "obstacle_density": obs_density,
+                    "save_every": None, # Set to a high number or None to disable for normal runs
+                    "learning_rate": 0.047225128696931,
+                    "gamma": 0.9675486944707316, # Added gamma here
+                    "epsilon_max": 0.9809888104530086,
+                    "epsilon_min": 0.0566205652581132,
+                    "renders": "renders/",
+                    "algorithm": "JALGT",
+                    "solution_concept": WelfareSolutionConcept, # Note: IQLAgent doesn't use this
+                    "track_timing": True  # Enable detailed timing for standalone runs
+                }
 
-        try:
-            os.mkdir(exp_config["renders"])
-        except FileExistsError:
-            pass
+                try:
+                    os.mkdir(exp_config["renders"])
+                except FileExistsError:
+                    pass
 
-        result = run_experiment(exp_config)
-        
-        if isinstance(result, dict):
-            print(f"Final collective reward: {result['collective_reward']}")
-            print(f"Individual rewards (mean): {result['individual_rewards']}")
-            print(f"Total training time: {result['total_training_time']:.2f} seconds")
-            print(f"Average time per episode: {result['total_training_time']/result['num_episodes']:.4f} seconds")
-            print(f"Total episodes: {result['num_episodes']}")
-        else:
-            print(f"Final collective reward: {result}")
-        
-        print(f"Total execution time: {time.time() - init_time:.2f} seconds")
+                result = run_experiment(exp_config)
+                
+                if isinstance(result, dict):
+                    print(f"PARAMS ======================================")
+                    print(f"NUM_AGENTS:  {num_agents}, SIZE: {size}, OBSTACLE: {obs_density}")
+                    print(f"Final collective reward: {result['collective_reward']}")
+                    print(f"Individual rewards (mean): {result['individual_rewards']}")
+                    print(f"Total training time: {result['total_training_time']:.2f} seconds")
+                    print(f"Average time per episode: {result['total_training_time']/result['num_episodes']:.4f} seconds")
+                    print(f"Total episodes: {result['num_episodes']}")
+                else:
+                    print(f"Final collective reward: {result}")
+                
+                print(f"Total execution time: {time.time() - init_time:.2f} seconds")               
