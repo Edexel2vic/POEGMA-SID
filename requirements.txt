@@ -9,3 +9,5 @@ jupyter
 numba
 optuna
 kaleido
+plotly
+scikit-learn

@@ -264,4 +264,3 @@ if __name__ == '__main__':
             print(f"Final collective reward: {result}")
         
         print(f"Total execution time: {time.time() - init_time:.2f} seconds")
-WelfareSolutionConcept
