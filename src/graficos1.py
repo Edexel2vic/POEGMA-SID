@@ -1,4 +1,4 @@
-# plot_results.py (version 3 - static-only optimization)
+# plot_results.py (version 4 - with custom metric plotting)
 
 import os
 import pandas as pd
@@ -8,185 +8,168 @@ import optuna
 from itertools import combinations
 
 # --- CONFIGURATION ---
-ALGORITHM = "IQL"
+ALGORITHM = "IQL" # JALGT o ILQ
 SOLUTION_CONCEPTS = ["WelfareSolutionConcept", "MinimaxSolutionConcept", "ParetoSolutionConcept", "NashSolutionConcept"]
 PLOTS_OUTPUT_DIR = "plots"
 
-# <<< MODIFIED: Set the desired static image format (pdf, svg, or png)
-STATIC_IMAGE_FORMAT = "pdf" 
+STATIC_IMAGE_FORMAT = "pdf"
 
-# <<< MODIFIED: Control which types of plots to generate for speed
+# --- PLOT GENERATION FLAGS ---
+GENERATE_OPTUNA_PLOTS = False       # Generate the standard Optuna plots (for collective reward)
+GENERATE_CUSTOM_METRIC_PLOTS = True # <<< NEW: Generate plots for other metrics (training time, etc.)
+# --- SUB-FLAGS for speed/control ---
 GENERATE_INTERACTIVE_PLOTS = False  # Set to False to skip slow HTML generation
 GENERATE_STATIC_PLOTS = True      # Set to True to get images for reports
 
-# --- HELPER FUNCTIONS ---
 
+# --- HELPER FUNCTIONS (unchanged) ---
 def load_study_and_df(algorithm, solution_concept=None):
-    """Loads the Optuna study and the corresponding CSV DataFrame."""
-    
     if algorithm == "IQL":
-        study_name = f"iql_pogema_tuning"
-        db_file = f"out/iql_pogema_tuning.db"
-        csv_file = f"out/iql_optuna_results_detailed.csv"
+        study_name, db_file, csv_file = "iql_pogema_tuning", "out/iql_pogema_tuning.db", "out/iql_optuna_results_detailed.csv"
     elif algorithm == "JALGT":
         concept_name_lower = solution_concept.lower()
         study_name = f"jalgt_{concept_name_lower}_pogema_tuning"
         db_file = f"out/{study_name}.db"
         csv_file = f"out/JALGT_{solution_concept}_optuna_results_detailed.csv"
-    else:
-        raise ValueError(f"Algorithm '{algorithm}' not recognized.")
-
+    else: raise ValueError(f"Algorithm '{algorithm}' not recognized.")
     if not os.path.exists(db_file) or not os.path.exists(csv_file):
-        print(f"Warning: Could not find results for {algorithm} {solution_concept or ''}. Skipping.")
-        return None, None
-        
-    storage_url = f"sqlite:///{db_file}"
-    
+        print(f"Warning: Could not find results for {algorithm} {solution_concept or ''}. Skipping."); return None, None
     try:
-        study = optuna.load_study(study_name=study_name, storage=storage_url)
+        study = optuna.load_study(study_name=study_name, storage=f"sqlite:///{db_file}")
         df = pd.read_csv(csv_file)
         return study, df
-    except Exception as e:
-        print(f"Error loading study '{study_name}' from '{db_file}': {e}")
-        return None, None
+    except Exception as e: print(f"Error loading study '{study_name}': {e}"); return None, None
 
 def create_output_dir(base_dir, sub_dir=None):
-    """Creates the output directory for plots if it doesn't exist."""
     path = os.path.join(base_dir, sub_dir) if sub_dir else base_dir
     os.makedirs(path, exist_ok=True)
     return path
 
-# --- PLOTTING FUNCTIONS ---
-
-def plot_reward_distribution(df, output_dir, file_prefix):
-    """Plots the distribution of the mean collective rewards and saves static images."""
-    if not GENERATE_STATIC_PLOTS:
-        return
-
-    plt.figure(figsize=(10, 6))
-    reward_col = 'value'
-    if reward_col not in df.columns:
-        print(f"Warning: '{reward_col}' column not found for distribution plot. Skipping.")
-        return
-
-    sns.histplot(df[reward_col], kde=True, bins=30)
-    mean_reward = df[reward_col].mean()
-    plt.axvline(mean_reward, color='r', linestyle='--', label=f'Mean: {mean_reward:.2f}')
-    
-    plt.title('Distribution of Mean Collective Rewards Across Trials')
-    plt.xlabel('Mean Collective Reward')
-    plt.ylabel('Frequency (Number of Trials)')
-    plt.legend()
-    plt.grid(True, which='both', linestyle='--', linewidth=0.5)
-    
-    # Save in both PNG (for quick viewing) and the high-quality static format (for reports)
-    plot_path_png = os.path.join(output_dir, f"{file_prefix}_reward_distribution.png")
-    plt.savefig(plot_path_png)
-    
-    plot_path_static = os.path.join(output_dir, f"{file_prefix}_reward_distribution.{STATIC_IMAGE_FORMAT}")
-    plt.savefig(plot_path_static, format=STATIC_IMAGE_FORMAT)
-    print(f"  Saved reward distribution plot to: {plot_path_static}")
-
-    plt.close()
-
-
+# --- OPTUNA VISUALIZATION PLOTTING ---
 def plot_optuna_visualizations(study, output_dir, file_prefix):
-    """
-    Generates and saves a suite of standard Optuna plots based on the configuration flags.
-    """
-    if not study or (not GENERATE_INTERACTIVE_PLOTS and not GENERATE_STATIC_PLOTS):
-        return
-
-    # A helper to save in the configured formats
+    # This function remains the same as version 3...
+    if not study or (not GENERATE_INTERACTIVE_PLOTS and not GENERATE_STATIC_PLOTS): return
     def save_fig(fig, name):
-        if GENERATE_INTERACTIVE_PLOTS:
-            html_path = os.path.join(output_dir, f"{file_prefix}_{name}.html")
-            fig.write_html(html_path)
-            print(f"  Saved interactive plot to: {html_path}")
-
+        if GENERATE_INTERACTIVE_PLOTS: fig.write_html(os.path.join(output_dir, f"{file_prefix}_{name}.html"))
         if GENERATE_STATIC_PLOTS:
-            static_path = os.path.join(output_dir, f"{file_prefix}_{name}.{STATIC_IMAGE_FORMAT}")
-            try:
-                fig.write_image(static_path)
-                print(f"  Saved static image to: {static_path}")
-            except ValueError as e: # Catch kaleido-specific errors
-                 print(f"  [!] Failed to save static image '{static_path}'.")
-                 print(f"  [!] Make sure 'kaleido' is installed and working: pip install kaleido")
-                 print(f"  [!] Original error: {e}")
-            except Exception as e:
-                print(f"  [!] An unexpected error occurred while saving static image: {e}")
-
-    # 1. Optimization History
-    try:
-        fig = optuna.visualization.plot_optimization_history(study)
-        save_fig(fig, "optimization_history")
-    except Exception as e:
-        print(f"Could not generate optimization history plot: {e}")
-
-    # 2. Parameter Importance
-    try:
-        fig = optuna.visualization.plot_param_importances(study)
-        save_fig(fig, "param_importances")
-    except Exception as e:
-        print(f"Could not generate parameter importance plot: {e}")
-
-    # 3. Slice Plots
-    try:
-        fig = optuna.visualization.plot_slice(study)
-        save_fig(fig, "slice_plots")
-    except Exception as e:
-        print(f"Could not generate slice plots: {e}")
-
-    # 4. Contour Plots
+            try: fig.write_image(os.path.join(output_dir, f"{file_prefix}_{name}.{STATIC_IMAGE_FORMAT}"))
+            except Exception as e: print(f"  [!] Failed to save static image for {name}. Ensure 'kaleido' is installed. Error: {e}")
+    plots = {
+        "optimization_history": optuna.visualization.plot_optimization_history,
+        "param_importances": optuna.visualization.plot_param_importances,
+        "slice": optuna.visualization.plot_slice,
+        "parallel_coordinate": optuna.visualization.plot_parallel_coordinate,
+    }
+    for name, plot_func in plots.items():
+        try: save_fig(plot_func(study), name); print(f"  Generated Optuna plot: {name}")
+        except Exception as e: print(f"Could not generate Optuna plot '{name}': {e}")
     params_to_plot = [p for p in study.best_params.keys() if len(study.best_params) > 1]
     if len(params_to_plot) >= 2:
-        param_pairs = list(combinations(params_to_plot, 2))
-        for pair in param_pairs:
-            try:
-                fig = optuna.visualization.plot_contour(study, params=list(pair))
-                save_fig(fig, f"contour_{pair[0]}_vs_{pair[1]}")
-            except Exception as e:
-                print(f"Could not generate contour plot for {pair}: {e}")
+        for pair in combinations(params_to_plot, 2):
+            try: save_fig(optuna.visualization.plot_contour(study, params=list(pair)), f"contour_{pair[0]}_vs_{pair[1]}"); print(f"  Generated Optuna plot: contour_{pair[0]}_vs_{pair[1]}")
+            except Exception as e: print(f"Could not generate contour plot for {pair}: {e}")
 
-    # 5. Parallel Coordinate Plot
-    try:
-        fig = optuna.visualization.plot_parallel_coordinate(study)
-        save_fig(fig, "parallel_coordinate")
-    except Exception as e:
-        print(f"Could not generate parallel coordinate plot: {e}")
+# <<< NEW FUNCTION TO PLOT CUSTOM METRICS ---
+def plot_custom_metrics(df, output_dir, file_prefix):
+    """
+    Generates custom plots for user-defined metrics from the results DataFrame.
+    """
+    if not GENERATE_CUSTOM_METRIC_PLOTS or not GENERATE_STATIC_PLOTS:
+        return
 
+    print("\n  --- Generating custom metric plots ---")
 
-def main():
-    """Main function to generate plots based on the configuration."""
-    print("--- Starting Result Plotting Script ---")
+    # Define the metrics you want to plot and their corresponding column names
+    metrics_to_plot = {
+        "Total Training Time (s)": "user_attrs_training_time_total_mean",
+        "Avg Time per Episode (s)": "user_attrs_training_time_per_episode_mean",
+        "Individual Reward (Agent 0)": "user_attrs_individual_reward_agent0_mean",
+    }
+
+    # Identify hyperparameter columns
+    hyperparameter_cols = [col for col in df.columns if col.startswith('params_')]
     
-    if ALGORITHM == "IQL":
-        print(f"\nProcessing algorithm: {ALGORITHM}")
-        study, df = load_study_and_df(ALGORITHM)
-        if study and df is not None:
-            output_dir = create_output_dir(PLOTS_OUTPUT_DIR, ALGORITHM.lower())
-            print(f"Generating plots for {ALGORITHM}...")
-            plot_reward_distribution(df, output_dir, ALGORITHM.lower())
-            plot_optuna_visualizations(study, output_dir, ALGORITHM.lower())
+    for metric_name, metric_col in metrics_to_plot.items():
+        if metric_col not in df.columns:
+            print(f"  Skipping metric '{metric_name}': Column '{metric_col}' not found.")
+            continue
+        
+        # Create a subdirectory for each metric's plots for better organization
+        metric_plot_dir = create_output_dir(output_dir, f"custom_{metric_col.replace('user_attrs_', '').replace('_mean','')}")
+        print(f"  Plotting for metric: {metric_name}")
+
+        # 1. Generate 2D "Slice" plots (Hyperparameter vs. Metric)
+        for param_col in hyperparameter_cols:
+            param_name = param_col.replace('params_', '')
+            plt.figure(figsize=(10, 6))
             
-    elif ALGORITHM == "JALGT":
-        print(f"\nProcessing algorithm: {ALGORITHM}")
-        for concept in SOLUTION_CONCEPTS:
-            print(f"\n--- Processing Solution Concept: {concept} ---")
-            study, df = load_study_and_df(ALGORITHM, concept)
-            if study and df is not None:
-                output_dir = create_output_dir(PLOTS_OUTPUT_DIR, f"{ALGORITHM.lower()}/{concept.lower()}")
-                file_prefix = f"{ALGORITHM.lower()}_{concept.lower()}"
-                print(f"Generating plots for {ALGORITHM} - {concept}...")
-                plot_reward_distribution(df, output_dir, file_prefix)
-                plot_optuna_visualizations(study, output_dir, file_prefix)
-    
-    print("\n--- Plotting complete! ---")
-    if GENERATE_STATIC_PLOTS:
-        print(f"Static images saved as .{STATIC_IMAGE_FORMAT} files in the '{PLOTS_OUTPUT_DIR}/' directory.")
-    if not GENERATE_INTERACTIVE_PLOTS:
-        print("Skipped generation of interactive HTML files as configured.")
+            # Use a regplot to show the trend
+            sns.regplot(data=df, x=param_col, y=metric_col, scatter_kws={'alpha':0.4}, line_kws={'color':'red'})
 
+            if 'learning_rate' in param_col:
+                plt.xscale('log')
+
+            plt.xlabel(f"Hyperparameter: {param_name}")
+            plt.ylabel(metric_name)
+            plt.title(f"{metric_name} vs. {param_name}")
+            plt.grid(True, which='both', linestyle='--', linewidth=0.5)
+            
+            plot_path = os.path.join(metric_plot_dir, f"2d_scatter_{param_name}.{STATIC_IMAGE_FORMAT}")
+            plt.savefig(plot_path)
+            plt.close()
+
+        # 2. Generate 3D "Contour" like plots (Hyperparam1 vs. Hyperparam2, color=Metric)
+        for param1_col, param2_col in combinations(hyperparameter_cols, 2):
+            param1_name = param1_col.replace('params_', '')
+            param2_name = param2_col.replace('params_', '')
+            
+            plt.figure(figsize=(12, 8))
+            sc = plt.scatter(data=df, x=param1_col, y=param2_col, c=metric_col, cmap='viridis', alpha=0.7)
+            
+            if 'learning_rate' in param1_col: plt.xscale('log')
+            if 'learning_rate' in param2_col: plt.yscale('log')
+
+            plt.xlabel(f"Hyperparameter: {param1_name}")
+            plt.ylabel(f"Hyperparameter: {param2_name}")
+            cbar = plt.colorbar(sc)
+            cbar.set_label(metric_name)
+            plt.title(f"{param1_name} vs. {param2_name}\n(Color shows {metric_name})")
+            plt.grid(True, which='both', linestyle='--', linewidth=0.5)
+
+            plot_path = os.path.join(metric_plot_dir, f"3d_scatter_{param1_name}_vs_{param2_name}.{STATIC_IMAGE_FORMAT}")
+            plt.savefig(plot_path)
+            plt.close()
+            
+# --- MAIN EXECUTION LOGIC ---
+def main():
+    print("--- Starting Result Plotting Script ---")
+    algorithms_to_run = [ALGORITHM] if ALGORITHM != "JALGT" else [(ALGORITHM, concept) for concept in SOLUTION_CONCEPTS]
+
+    for item in algorithms_to_run:
+        if isinstance(item, tuple):
+            alg, concept = item
+            print(f"\n--- Processing: {alg} - {concept} ---")
+            study, df = load_study_and_df(alg, concept)
+            if not study: continue
+            output_dir = create_output_dir(PLOTS_OUTPUT_DIR, f"{alg.lower()}/{concept.lower()}")
+            file_prefix = f"{alg.lower()}_{concept.lower()}"
+        else:
+            alg = item
+            print(f"\n--- Processing: {alg} ---")
+            study, df = load_study_and_df(alg)
+            if not study: continue
+            output_dir = create_output_dir(PLOTS_OUTPUT_DIR, alg.lower())
+            file_prefix = alg.lower()
+
+        # Generate standard Optuna plots for the main objective (Collective Reward)
+        if GENERATE_OPTUNA_PLOTS:
+            plot_optuna_visualizations(study, output_dir, file_prefix)
+        
+        # <<< NEW: Generate custom plots for other important metrics
+        if GENERATE_CUSTOM_METRIC_PLOTS:
+            plot_custom_metrics(df, output_dir, file_prefix)
+
+    print("\n--- Plotting complete! ---")
 
 if __name__ == "__main__":
     main()
