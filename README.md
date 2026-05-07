@@ -213,6 +213,11 @@ The codebase uses several optimization techniques:
 ## Research Findings
 The complete comparative study, detailed performance analysis, and hyperparameter optimization results are available in the full project report: MARL-POGEMA.pdf.  Note that the comprehensive report is written in Spanish, reflecting its origin as an academic project for the Distributed Intelligent Systems (SID) course at FIB - UPC.
 
+### Key Takeaways:
+* **Best Performance**: **JALGT-NN** with **Pareto Optimality** proved to be the most robust configuration for coordination.
+* **Scalability**: While joint-action methods excel in coordination, **IQL** is more efficient as the number of agents increases due to lower computational complexity.
+* **Hyperparameters**: The most critical parameters (like `episode_length`) vary significantly depending on the chosen solution concept.
+
 ## Contributing
 
 This project appears to be an academic assignment or research project. If you'd like to contribute:
@@ -224,10 +229,10 @@ This project appears to be an academic assignment or research project. If you'd 
 
 ## Authors
 
-**Víctor Ramírez Arimaha** 
-**Marcel Alabart Benoit** 
-**Adrià Cebrián Ruiz** 
-*Facultad de Informática de Barcelona (FIB) - Universidad Politécnica de Cataluña (UPC)*
+* **Víctor Ramírez Arimaha** 
+* **Marcel Alabart Benoit** 
+* **Adrià Cebrián Ruiz** 
+* *Facultad de Informática de Barcelona (FIB) - Universidad Politécnica de Cataluña (UPC)*
 
 ## License
 
