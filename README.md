@@ -1,3 +1,4 @@
+**Note:** This research and the original documentation were conducted in Spanish as part of the **Distributed Intelligent Systems (SID)** course at the **Faculty of Informatics of Barcelona (FIB) - UPC**
 # POEGMA-SID
 
 Multi-Agent Reinforcement Learning (MARL) implementation for the POGEMA (Partially Observable Grid Environment for Multiple Agents) environment. This project implements and compares various solution concepts and learning algorithms for cooperative pathfinding in multi-agent systems.
@@ -209,6 +210,9 @@ The codebase uses several optimization techniques:
 - **Vectorization**: NumPy operations for efficient array computations
 - **Caching**: Function result caching where applicable
 
+## Research Findings
+The complete comparative study, detailed performance analysis, and hyperparameter optimization results are available in the full project report: MARL-POGEMA.pdf.  Note that the comprehensive report is written in Spanish, reflecting its origin as an academic project for the Distributed Intelligent Systems (SID) course at FIB - UPC.
+
 ## Contributing
 
 This project appears to be an academic assignment or research project. If you'd like to contribute:
@@ -217,6 +221,13 @@ This project appears to be an academic assignment or research project. If you'd 
 2. Create a feature branch
 3. Make your changes
 4. Submit a pull request
+
+## Authors
+
+**Víctor Ramírez Arimaha** 
+**Marcel Alabart Benoit** 
+**Adrià Cebrián Ruiz** 
+*Facultad de Informática de Barcelona (FIB) - Universidad Politécnica de Cataluña (UPC)*
 
 ## License
 
