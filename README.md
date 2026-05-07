@@ -232,7 +232,6 @@ This project appears to be an academic assignment or research project. If you'd 
 * **Víctor Ramírez Arimaha** 
 * **Marcel Alabart Benoit** 
 * **Adrià Cebrián Ruiz** 
-* *Facultad de Informática de Barcelona (FIB) - Universidad Politécnica de Cataluña (UPC)*
 
 ## License
 
