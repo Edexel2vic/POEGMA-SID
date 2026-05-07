@@ -1,5 +1,5 @@
 **Note:** This research and the original documentation were conducted in Spanish as part of the **Distributed Intelligent Systems (SID)** course at the **Faculty of Informatics of Barcelona (FIB) - UPC**
-# POEGMA-SID
+# POGEMA-SID
 
 Multi-Agent Reinforcement Learning (MARL) implementation for the POGEMA (Partially Observable Grid Environment for Multiple Agents) environment. This project implements and compares various solution concepts and learning algorithms for cooperative pathfinding in multi-agent systems.
 
